@@ -6,6 +6,7 @@ import folium
 from folium.plugins import MarkerCluster
 import random
 from sklearn.cluster import DBSCAN
+import h3
 
 
 kms_per_radian = 6371.0088
@@ -62,3 +63,24 @@ def handleFile(c1,fileName):
 
     st.header("Offender Colocation", divider=True)
     st.components.v1.html(folium.Figure().add_child(m).render(), height=500)
+    df = df.sort_values(['cluster_labels','asset_id','ts'])
+    df = df.assign(cg=(df.asset_id != df.asset_id.shift()).ne(0).cumsum() )
+    df['cellid'] = df[['lat','lon']].apply(lambda r: h3.latlng_to_cell(r.lat,r.lon,11),axis=1)
+    df = df.groupby(['cluster_labels','asset_id','cg']).agg(
+            asset_id=('asset_id','last'),
+            start_time = ('ts','min'), 
+            end_time=('ts','max'),
+            latitude=('lat','mean'),
+            longitude=('lon','mean'),
+            no_of_point=('asset_id','count'),
+            cellid=('cellid',lambda r: set(r.values)),
+            cluster_labels=('cluster_labels','last')
+            
+    )
+    df.reset_index(drop=True,inplace=True)
+    df['coloc_id'] = None
+    def setcoloc(r,df):
+        df.loc[df.cluster_labels ==  r.name,['coloc_id']] =  [ set(r.values) for i in r.index]
+        
+    df.groupby('cluster_labels')['asset_id'].apply(lambda r:setcoloc(r,df))
+    st.table(df)
